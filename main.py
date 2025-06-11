@@ -25,9 +25,6 @@ class CourseReminderPlugin(Star):
         # 加载配置
         self.reminder_time = 30  # 默认提前30分钟提醒
         self.daily_notification_time = "23:00"  # 默认每天23:00发送通知
-        self.api_base_url = "https://api.siliconflow.cn/v1"
-        self.api_key = "sk-zxtmadhtngzchfjeuoasxfyjbvxnvunyqgyrusdwentlbjxo"
-        self.model_name = "deepseek-ai/DeepSeek-V3"
         
         if config:
             self.reminder_time = config.get("reminder_time", 30)
@@ -87,155 +84,45 @@ class CourseReminderPlugin(Star):
         except Exception as e:
             logger.error(f"保存数据失败: {str(e)}")
 
-    @filter.message
+    @filter.message()
     async def on_message(self, event: AstrMessageEvent) -> MessageEventResult:
         """处理消息"""
         user_id = event.user_id
         
-        # 检查是否是图片或文件消息
+        # 检查是否是图片或文件
         if event.message_type in ["image", "file"]:
-            template = """【课程消息模板】
-
-【姓名同学学年学期课程安排】
-
-📚 基本信息
-
-• 学校：XX大学（没有则不显示）
-
-• 班级：XX班（没有则不显示）
-
-• 专业：XX专业（没有则不显示）
-
-• 学院：XX学院（没有则不显示）
-
-🗓️ 每周课程详情
-星期X
-
-• 上课时间（节次和时间）：
-课程名称
-教师：老师姓名
-上课地点：教室/场地
-周次：具体周次
-
-示例：
-星期一
-上课时间：第1-2节（08:00-09:40）
-课程名称：如何找到富婆
-教师：飘逸
-上课地点150123
-周次：1-16周
-
-周末：无课程。
-
-🌙 晚间课程
-
-• 上课时间（节次和时间）：
-课程名称
-教师：老师姓名
-上课地点：教室/场地
-周次：具体周次
-
-📌 重要备注
-
-• 备注内容1
-
-• 备注内容2
-
-请留意课程周次及教室安排，合理规划学习时间！"""
-            
-            await event.reply(f"抱歉，我暂时无法识别图片和文件。\n\n由于作者比较穷，请您复制下方【课程消息模板】去豆包，将课程表图片或者文件和课程消息模板发送给豆包，让它生成后，再来发送给我。\n\n{template}")
+            await event.reply("请使用其他AI来识别图片或文件中的课程信息。")
             return MessageEventResult(handled=True)
         
         # 处理文本消息
         if event.message_type == "text":
-            # 检查是否是确认消息
+            # 检查是否在等待确认状态
             if user_id in self.confirmation_status:
-                if event.content.strip() in ["确认", "是的", "对", "正确"]:
+                if event.content.lower() in ["是", "yes", "y"]:
+                    # 保存课程信息
+                    self.course_data[user_id] = self.confirmation_status[user_id]
                     self.reminder_status[user_id] = True
                     self.save_data()
-                    await event.reply("已开启课程提醒功能！")
                     del self.confirmation_status[user_id]
-                    return MessageEventResult(handled=True)
-                elif event.content.strip() in ["取消", "不", "不对", "错误"]:
-                    del self.confirmation_status[user_id]
-                    await event.reply("已取消课程提醒功能。")
-                    return MessageEventResult(handled=True)
-            
-            # 解析课程信息
-            try:
-                # 调用AI模型解析课程信息
-                headers = {
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json"
-                }
-                
-                data = {
-                    "model": self.model_name,
-                    "messages": [
-                        {
-                            "role": "system",
-                            "content": "你是一个专业的课程表解析助手，请将用户提供的课程信息解析为结构化的JSON格式。"
-                        },
-                        {
-                            "role": "user",
-                            "content": event.content
-                        }
-                    ]
-                }
-                
-                response = requests.post(
-                    f"{self.api_base_url}/chat/completions",
-                    headers=headers,
-                    json=data
-                )
-                
-                if response.status_code == 200:
-                    result = response.json()
-                    course_info = json.loads(result["choices"][0]["message"]["content"])
-                    
-                    # 保存课程信息
-                    self.course_data[user_id] = course_info
-                    self.save_data()
-                    
-                    # 发送确认消息
-                    confirmation_msg = "请确认以下课程信息是否正确：\n\n"
-                    confirmation_msg += self.format_course_info(course_info)
-                    confirmation_msg += "\n\n请回复"确认"或"取消"。"
-                    
-                    self.confirmation_status[user_id] = True
-                    await event.reply(confirmation_msg)
+                    await event.reply("课程信息已保存！\n提醒功能已自动开启。")
                 else:
-                    await event.reply("抱歉，课程信息解析失败，请检查格式是否正确。")
+                    del self.confirmation_status[user_id]
+                    await event.reply("已取消保存课程信息。")
+                return MessageEventResult(handled=True)
+            
+            # 尝试解析课程信息
+            try:
+                course_info = self.parse_course_info(event.content)
+                if course_info:
+                    # 请求用户确认
+                    self.confirmation_status[user_id] = course_info
+                    msg = self.format_course_info(course_info)
+                    await event.reply(f"请确认以下课程信息是否正确？\n\n{msg}\n\n回复"是"确认，其他内容取消。")
+                    return MessageEventResult(handled=True)
             except Exception as e:
                 logger.error(f"解析课程信息失败: {str(e)}")
-                await event.reply("抱歉，课程信息解析失败，请检查格式是否正确。")
         
-        return MessageEventResult(handled=True)
-
-    def format_course_info(self, course_info):
-        """格式化课程信息"""
-        msg = "【课程信息】\n\n"
-        
-        # 基本信息
-        if "basic_info" in course_info:
-            msg += "📚 基本信息\n"
-            for key, value in course_info["basic_info"].items():
-                if value:
-                    msg += f"• {key}：{value}\n"
-            msg += "\n"
-        
-        # 课程详情
-        if "courses" in course_info:
-            msg += "🗓️ 课程详情\n"
-            for course in course_info["courses"]:
-                msg += f"\n星期{course['day']}\n"
-                msg += f"上课时间：{course['time']}\n"
-                msg += f"课程名称：{course['name']}\n"
-                msg += f"教师：{course['teacher']}\n"
-                msg += f"上课地点：{course['location']}\n"
-                msg += f"周次：{course['weeks']}\n"
-        
-        return msg
+        return MessageEventResult(handled=False)
 
     async def reminder_loop(self):
         """提醒循环"""
@@ -243,27 +130,24 @@ class CourseReminderPlugin(Star):
             try:
                 now = datetime.datetime.now()
                 
-                # 检查当前课程
+                # 检查每个用户的课程
                 for user_id, courses in self.course_data.items():
                     if not self.reminder_status.get(user_id, False):
                         continue
                     
-                    current_courses = self.get_current_courses(user_id)
+                    # 获取当前课程
+                    current_courses = self.get_current_courses(courses)
                     if current_courses:
+                        # 发送提醒
                         for course in current_courses:
-                            msg = "【课程上课提醒】\n"
-                            msg += f"同学你好，待会有课哦\n"
-                            msg += f"上课时间：{course['time']}\n"
-                            msg += f"课程名称：{course['name']}\n"
-                            msg += f"教师：{course['teacher']}\n"
-                            msg += f"上课地点：{course['location']}\n"
-                            
-                            try:
-                                await self.context.send_message(user_id, msg)
-                            except Exception as e:
-                                logger.error(f"发送课程提醒失败: {str(e)}")
+                            msg = f"提醒：{course['name']} 课程即将开始！\n"
+                            msg += f"时间：{course['time']}\n"
+                            msg += f"地点：{course['location']}\n"
+                            msg += f"教师：{course['teacher']}"
+                            await self.context.send_message(user_id, msg)
                 
-                await asyncio.sleep(60)  # 每分钟检查一次
+                # 等待1分钟
+                await asyncio.sleep(60)
             except Exception as e:
                 logger.error(f"提醒循环出错: {str(e)}")
                 await asyncio.sleep(60)
@@ -272,163 +156,144 @@ class CourseReminderPlugin(Star):
         """每日通知任务"""
         while True:
             try:
-                # 计算下次运行时间
                 now = datetime.datetime.now()
-                next_run = parser.parse(self.daily_notification_time)
-                if next_run <= now:
+                target_time = parser.parse(self.daily_notification_time).time()
+                next_run = datetime.datetime.combine(now.date(), target_time)
+                
+                if now.time() >= target_time:
                     next_run += datetime.timedelta(days=1)
                 
-                # 等待到指定时间
-                wait_seconds = (next_run - now).total_seconds()
-                await asyncio.sleep(wait_seconds)
+                # 等待到目标时间
+                await asyncio.sleep((next_run - now).total_seconds())
                 
-                # 发送通知
-                for user_id in self.course_data:
-                    if self.reminder_status.get(user_id, True):
-                        courses = self.get_tomorrow_courses(user_id)
-                        if courses:
-                            msg = "【明日课程提醒】\n"
-                            for course in courses:
-                                msg += f"• {course['name']} ({course['time']})\n"
-                                msg += f"  地点：{course['location']}\n"
-                                msg += f"  教师：{course['teacher']}\n"
-                            
-                            msg += "\n是否开启明日课程提醒？回复"确认"开启，回复"取消"关闭。"
-                            self.confirmation_status[user_id] = True
-                            await self.context.send_message(user_id, msg)
-                
+                # 发送每日通知
+                for user_id, courses in self.course_data.items():
+                    if not self.reminder_status.get(user_id, False):
+                        continue
+                    
+                    tomorrow_courses = self.get_tomorrow_courses(courses)
+                    if tomorrow_courses:
+                        msg = "明日课程安排：\n\n"
+                        for course in tomorrow_courses:
+                            msg += f"{course['time']} {course['name']}\n"
+                            msg += f"地点：{course['location']}\n"
+                            msg += f"教师：{course['teacher']}\n\n"
+                        await self.context.send_message(user_id, msg)
             except Exception as e:
                 logger.error(f"每日通知任务出错: {str(e)}")
                 await asyncio.sleep(60)
 
-    def get_current_courses(self, user_id):
+    def parse_course_info(self, text: str) -> dict:
+        """解析课程信息"""
+        # 提取基本信息
+        basic_info = {}
+        basic_pattern = r"学期开始日期：(\d{4}-\d{2}-\d{2})\n总周数：(\d+)"
+        basic_match = re.search(basic_pattern, text)
+        if basic_match:
+            basic_info["start_date"] = basic_match.group(1)
+            basic_info["total_weeks"] = int(basic_match.group(2))
+        
+        # 提取课程信息
+        courses = []
+        course_pattern = r"第(\d+)周\s+星期([一二三四五六日])\s+第(\d+)节\s+([^\n]+)\s+([^\n]+)\s+([^\n]+)"
+        for match in re.finditer(course_pattern, text):
+            week = int(match.group(1))
+            weekday = "一二三四五六日".index(match.group(2)) + 1
+            period = int(match.group(3))
+            name = match.group(4).strip()
+            location = match.group(5).strip()
+            teacher = match.group(6).strip()
+            
+            courses.append({
+                "week": week,
+                "weekday": weekday,
+                "period": period,
+                "name": name,
+                "location": location,
+                "teacher": teacher
+            })
+        
+        if not courses:
+            return None
+        
+        return {
+            "basic_info": basic_info,
+            "courses": courses
+        }
+
+    def get_current_courses(self, courses: dict) -> list:
         """获取当前课程"""
-        if user_id not in self.course_data:
-            return []
-        
-        now = datetime.datetime.now()
-        current_week = self.get_current_week()
-        current_day = now.weekday() + 1  # 1-7
-        current_time = now.strftime("%H:%M")
-        
-        courses = []
-        for course in self.course_data[user_id].get("courses", []):
-            if (course["day"] == current_day and 
-                current_week in self.parse_weeks(course["weeks"]) and
-                self.is_time_between(current_time, course["time"], self.reminder_time)):
-                courses.append(course)
-        
-        return courses
-
-    def get_tomorrow_courses(self, user_id):
-        """获取明日课程"""
-        if user_id not in self.course_data:
-            return []
-        
-        tomorrow = datetime.datetime.now() + datetime.timedelta(days=1)
-        current_week = self.get_current_week()
-        tomorrow_day = tomorrow.weekday() + 1  # 1-7
-        
-        courses = []
-        for course in self.course_data[user_id].get("courses", []):
-            if (course["day"] == tomorrow_day and 
-                current_week in self.parse_weeks(course["weeks"])):
-                courses.append(course)
-        
-        return courses
-
-    def get_current_week(self):
-        """获取当前周次"""
         if not self.semester_config:
-            return 1
-        
-        start_date = parser.parse(self.semester_config.get("start_date", ""))
-        if not start_date:
-            return 1
+            return []
         
         now = datetime.datetime.now()
-        week_diff = (now - start_date).days // 7 + 1
-        return max(1, min(week_diff, self.semester_config.get("total_weeks", 16)))
-
-    def parse_weeks(self, weeks_str):
-        """解析周次字符串"""
-        weeks = set()
-        for part in weeks_str.split(","):
-            if "-" in part:
-                start, end = map(int, part.split("-"))
-                weeks.update(range(start, end + 1))
-            else:
-                weeks.add(int(part))
-        return weeks
-
-    def is_time_between(self, current_time, course_time, minutes_before):
-        """检查是否在课程时间前指定分钟"""
-        try:
-            current = parser.parse(current_time)
-            course_start = parser.parse(course_time.split("-")[0])
-            reminder_time = course_start - datetime.timedelta(minutes=minutes_before)
-            
-            return current >= reminder_time and current <= course_start
-        except:
-            return False
-
-    @filter.command("test_reminder")
-    async def test_reminder(self, event: AstrMessageEvent) -> MessageEventResult:
-        """测试提醒功能"""
-        user_id = event.user_id
+        start_date = parser.parse(self.semester_config["start_date"])
+        current_week = ((now - start_date).days // 7) + 1
         
-        if user_id not in self.course_data:
-            await event.reply("您还没有设置课程信息。")
-            return MessageEventResult(handled=True)
+        if current_week > self.semester_config["total_weeks"]:
+            return []
         
-        # 发送测试提醒
-        msg = "【课程提醒测试】\n"
-        msg += "上课时间：第1-2节（08:00-09:40）\n"
-        msg += "课程名称：如何找到富婆\n"
-        msg += "教师：飘逸\n"
-        msg += "上课地点：150123"
+        current_weekday = now.weekday() + 1
+        current_time = now.time()
         
-        await event.reply(msg)
-        return MessageEventResult(handled=True)
+        result = []
+        for course in courses["courses"]:
+            if course["week"] == current_week and course["weekday"] == current_weekday:
+                # 计算课程开始时间
+                course_start = datetime.time(8, 0) + datetime.timedelta(minutes=(course["period"] - 1) * 45)
+                course_end = datetime.time(8, 0) + datetime.timedelta(minutes=course["period"] * 45)
+                
+                # 检查是否在提醒时间范围内
+                reminder_time = (datetime.datetime.combine(datetime.date.today(), course_start) - 
+                               datetime.timedelta(minutes=self.reminder_time)).time()
+                
+                if reminder_time <= current_time <= course_end:
+                    course["time"] = f"{course_start.strftime('%H:%M')}-{course_end.strftime('%H:%M')}"
+                    result.append(course)
+        
+        return result
 
-    def terminate(self):
-        """插件终止时的清理工作"""
-        # 取消所有提醒任务
-        for task in self.reminder_tasks.values():
-            task.cancel()
-        self.reminder_tasks.clear()
+    def get_tomorrow_courses(self, courses: dict) -> list:
+        """获取明日课程"""
+        if not self.semester_config:
+            return []
         
-        # 保存数据
-        self.save_data()
+        now = datetime.datetime.now()
+        tomorrow = now + datetime.timedelta(days=1)
+        start_date = parser.parse(self.semester_config["start_date"])
+        current_week = ((tomorrow - start_date).days // 7) + 1
+        
+        if current_week > self.semester_config["total_weeks"]:
+            return []
+        
+        tomorrow_weekday = tomorrow.weekday() + 1
+        
+        result = []
+        for course in courses["courses"]:
+            if course["week"] == current_week and course["weekday"] == tomorrow_weekday:
+                result.append(course)
+        
+        return result
 
-    def backup_data(self):
-        """备份数据"""
-        try:
-            backup_dir = os.path.join(self.data_dir, "backup")
-            os.makedirs(backup_dir, exist_ok=True)
-            
-            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            backup_path = os.path.join(backup_dir, f"backup_{timestamp}")
-            os.makedirs(backup_path, exist_ok=True)
-            
-            # 复制数据文件
-            for filename in ["course_data.json", "reminder_status.json", "semester_config.json"]:
-                src = os.path.join(self.data_dir, filename)
-                if os.path.exists(src):
-                    shutil.copy2(src, os.path.join(backup_path, filename))
-            
-            logger.info(f"数据备份成功: {backup_path}")
-        except Exception as e:
-            logger.error(f"数据备份失败: {str(e)}")
+    def format_course_info(self, course_info: dict) -> str:
+        """格式化课程信息"""
+        msg = ""
+        if "basic_info" in course_info:
+            msg += f"学期开始日期：{course_info['basic_info']['start_date']}\n"
+            msg += f"总周数：{course_info['basic_info']['total_weeks']}\n\n"
+        
+        msg += "课程信息：\n"
+        for course in course_info["courses"]:
+            msg += f"第{course['week']}周 星期{'一二三四五六日'[course['weekday']-1]} "
+            msg += f"第{course['period']}节 {course['name']}\n"
+            msg += f"地点：{course['location']}\n"
+            msg += f"教师：{course['teacher']}\n\n"
+        
+        return msg
 
     @filter.command("set_semester")
     async def set_semester(self, event: AstrMessageEvent, start_date: str, total_weeks: int) -> MessageEventResult:
-        """设置学期信息
-        
-        Args:
-            start_date: 学期开始日期，格式：YYYY-MM-DD
-            total_weeks: 总周数
-        """
+        """设置学期信息"""
         try:
             # 验证日期格式
             start = parser.parse(start_date)
@@ -444,6 +309,8 @@ class CourseReminderPlugin(Star):
         except Exception as e:
             logger.error(f"设置学期信息失败: {str(e)}")
             await event.reply("设置学期信息失败，请检查日期格式是否正确（YYYY-MM-DD）。")
+        
+        return MessageEventResult(handled=True)
 
     @filter.command("list_courses")
     async def list_courses(self, event: AstrMessageEvent) -> MessageEventResult:
@@ -487,4 +354,73 @@ class CourseReminderPlugin(Star):
         
         status_text = "开启" if not current_status else "关闭"
         await event.reply(f"课程提醒已{status_text}。")
-        return MessageEventResult(handled=True) 
+        return MessageEventResult(handled=True)
+
+    def check_course_conflicts(self, courses: list) -> list:
+        """检查课程冲突"""
+        conflicts = []
+        for i in range(len(courses)):
+            for j in range(i + 1, len(courses)):
+                if (courses[i]["week"] == courses[j]["week"] and
+                    courses[i]["weekday"] == courses[j]["weekday"] and
+                    courses[i]["period"] == courses[j]["period"]):
+                    conflicts.append((courses[i], courses[j]))
+        return conflicts
+
+    def backup_data(self):
+        """备份数据"""
+        try:
+            backup_dir = os.path.join(self.data_dir, "backup")
+            os.makedirs(backup_dir, exist_ok=True)
+            
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_path = os.path.join(backup_dir, f"backup_{timestamp}")
+            os.makedirs(backup_path, exist_ok=True)
+            
+            # 复制数据文件
+            for filename in ["course_data.json", "reminder_status.json", "semester_config.json"]:
+                src = os.path.join(self.data_dir, filename)
+                if os.path.exists(src):
+                    shutil.copy2(src, os.path.join(backup_path, filename))
+            
+            logger.info(f"数据备份成功: {backup_path}")
+        except Exception as e:
+            logger.error(f"数据备份失败: {str(e)}")
+
+    @filter.command("test_reminder")
+    async def test_reminder(self, event: AstrMessageEvent) -> MessageEventResult:
+        """测试提醒功能"""
+        user_id = event.user_id
+        
+        if user_id not in self.course_data:
+            await event.reply("您还没有设置课程信息。")
+            return MessageEventResult(handled=True)
+        
+        if not self.reminder_status.get(user_id, False):
+            await event.reply("提醒功能未开启，请先开启提醒功能。")
+            return MessageEventResult(handled=True)
+        
+        # 获取当前课程
+        current_courses = self.get_current_courses(self.course_data[user_id])
+        if not current_courses:
+            await event.reply("当前没有需要提醒的课程。")
+            return MessageEventResult(handled=True)
+        
+        # 发送测试提醒
+        for course in current_courses:
+            msg = f"测试提醒：{course['name']} 课程即将开始！\n"
+            msg += f"时间：{course['time']}\n"
+            msg += f"地点：{course['location']}\n"
+            msg += f"教师：{course['teacher']}"
+            await event.reply(msg)
+        
+        return MessageEventResult(handled=True)
+
+    def terminate(self):
+        """插件终止时调用"""
+        # 保存数据
+        self.save_data()
+        
+        # 取消所有任务
+        for task in self.reminder_tasks.values():
+            task.cancel() 

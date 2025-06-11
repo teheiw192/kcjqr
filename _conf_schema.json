@@ -12,5 +12,6 @@
             "default": "23:00"
         }
     },
-    "required": []
+    "required": [],
+    "additionalProperties": false
 } 

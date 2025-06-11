@@ -1,5 +1,15 @@
-name: helloworld # 这是你的插件的唯一识别名。
-desc: 这是 AstrBot 的默认插件，支持关键词回复。 # 插件简短描述
-version: v1.3 # 插件版本号。格式：v1.1.1 或者 v1.1
-author: Soulter # 作者
-repo: https://github.com/Soulter/helloworld # 插件的仓库地址
+name: kcjqr
+version: 1.0.0
+description: 课程提醒插件，支持课程表识别和自动提醒功能。当用户发送课程表图片或文件时，会提示用户使用豆包AI进行识别；当用户发送文本时，会自动识别课程信息并开启提醒功能。
+author: teheiw192
+repository: https://github.com/teheiw192/kcjqr
+license: MIT
+tags:
+  - 课程表
+  - 提醒
+  - 管理
+  - 学习
+  - 日程
+dependencies:
+  - python-dateutil>=2.8.2
+  - requests>=2.31.0 

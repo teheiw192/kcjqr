@@ -1,0 +1,15 @@
+{
+    "type": "object",
+    "properties": {
+        "reminder_time": {
+            "type": "integer",
+            "description": "课程提醒时间（分钟）",
+            "default": 30
+        },
+        "daily_notification_time": {
+            "type": "string",
+            "description": "每日通知时间",
+            "default": "23:00"
+        }
+    }
+} 
